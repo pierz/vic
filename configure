@@ -5378,15 +5378,15 @@ if test $ac_cv_header_libv4lconvert_h = yes; then
   V_DEFINE="$V_DEFINE -DHAVE_LIBV4L"
          V_LIB_GRABBER="$V_LIB_GRABBER -lv4l1 -lv4l2"
 else
-  $V_OBJ_GRABBER="$V_OBJ_GRABBER  video/tinyjpeg.o video/jidctflt.o"
+  V_OBJ_GRABBER="$V_OBJ_GRABBER  video/tinyjpeg.o video/jidctflt.o"
 fi
 
 
         if test -r /usr/include/linux/videodev2.h  ; then
-                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-v4l2.o video/grabber-video4linux.o"
+                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-v4l2.o video/grabber-video4linux.o video/yuv_convert.o"
 		echo "Using Linux Grabbers: Video4Linux2 and Video4Linux1"
         else
-                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-video4linux.o"
+                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-video4linux.o video/yuv_convert.o"
 		echo "Using Linux Grabber: Video4Linux1"
         fi
 fi

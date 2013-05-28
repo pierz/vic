@@ -52,6 +52,9 @@
 
 //extern void ShowErrorMessage(HRESULT, int, char* );
 
+#define CF_422 0
+#define CF_420 1
+#define CF_CIF 2
 
 static const int D1_BASE_WIDTH  = 720;
 static const int D1_BASE_HEIGHT = 480;
@@ -82,20 +85,38 @@ class Callback;
 
 class DirectShowGrabber : public Grabber {
    public:
-      DirectShowGrabber(IBaseFilter *, const char * nick);
+      DirectShowGrabber(IBaseFilter *, const char * cformat, const char * nick = 0);
       ~DirectShowGrabber();
       virtual int  command(int argc, const char*const* argv);
-      inline void  converter(Converter* v) {
-         converter_ = v;
-      }
+
       void         capture(BYTE *, long);
 
 	  bool		   hasComposite(){
 	      return (compositePort >= 0);
 	  }
 
+	  bool		   hasDV_SD(){
+	      return (have_DVSD_);
+	  }
+
 	  bool		   hasSVideo(){
 		  return (svideoPort >= 0);
+	  }
+
+	  int		   maxWidth(){
+	      return max_width_;
+	  }
+
+	  int		   maxHeight(){
+		  return max_height_;
+	  }
+
+	  int		   minWidth(){
+	      return min_width_;
+	  }
+
+	  int		   minHeight(){
+		  return min_height_;
 	  }
 
       int          capturing_;
@@ -104,7 +125,7 @@ class DirectShowGrabber : public Grabber {
       virtual void start();
       virtual void stop();
       virtual void fps(int);
-      virtual void setsize() = 0;
+      virtual void setsize();
       virtual int  grab();
       void         setport(const char *port);
       int	   getCaptureCapabilities();
@@ -116,25 +137,35 @@ class DirectShowGrabber : public Grabber {
       u_int        max_fps_;
 	  int		   max_width_;
 	  int		   max_height_;
+	  int		   min_width_;
+	  int		   min_height_;
 	  int		   width_;
       int		   height_;
+      int          cformat_;
       int          compositePort;
 	  int		   svideoPort;
 
+	  bool		   have_I420_;  // YUV 4:2:0 planar
+	  bool		   have_UYVY_;  // YUV 4:2:2 packed
+	  bool		   have_YUY2_;  // as for UYVY but with different component ordering
+	  bool		   have_DVSD_;  // DV standard definition
+
       u_int        decimate_;    // set in this::command via small/normal/large in vic UI; msp
       BYTE         *last_frame_;
-      Converter    *converter_;
 
    private:
       IBaseFilter*			 pFilter_;
       IBaseFilter*           pCaptureFilter_;
       ISampleGrabber*        pSampleGrabber_;
       IBaseFilter*           pGrabberBaseFilter_;
+      IIPDVDec*              pDVVideoDecoder_;
+      IBaseFilter*           pDVDecoderBaseFilter_;
       IBaseFilter*           pNullRenderer_;
       IBaseFilter*           pNullBaseFilter_;
       IGraphBuilder*         pGraph_;
       ICaptureGraphBuilder2* pBuild_;
       IMediaControl*         pMediaControl_;
+	  DWORD                  dwRegister_;
       AM_MEDIA_TYPE          mt_;
       Callback               *callback_;
 
@@ -146,17 +177,6 @@ class DirectShowGrabber : public Grabber {
       void                           addCrossbar(IAMCrossbar *);
       void                           routeCrossbar();
 
-};
-
-//#########################################################################
-
-class DirectShowCIFGrabber : public DirectShowGrabber {
-   public:
-      DirectShowCIFGrabber(IBaseFilter *, const char *nick = 0 );
-      ~DirectShowCIFGrabber();
-   protected:
-      virtual void start();
-      virtual void setsize();
 };
 
 //#########################################################################

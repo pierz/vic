@@ -9,9 +9,6 @@
      Added brightness, contrast, hue and saturation controls.
      by Jean-Marc Orliaguet <jmo@medialab.chalmers.se>
 
-     Added support for various YUV byte orders.
-     by Jean-Marc Orliaguet <jmo@medialab.chalmers.se>
-
      Added support for NTSC/PAL/SECAM video norm selection. (14/10/99)
      by Jean-Marc Orliaguet <jmo@medialab.chalmers.se>
 
@@ -68,6 +65,7 @@ extern "C"
 #include "vic_tcl.h"
 #include "device-input.h"
 #include "module.h"
+#include "yuv_convert.h"
 
 /* here you can tune the device names */
 static const char *devlist[] = {
@@ -77,16 +75,23 @@ static const char *devlist[] = {
     NULL
 };
 
-#define NTSC_WIDTH  640
-#define NTSC_HEIGHT 480
-#define PAL_WIDTH   768
-#define PAL_HEIGHT  576
+#define PAL_BT601_WIDTH   720
+#define PAL_BT601_HEIGHT  576
+#define NTSC_BT601_WIDTH  720
+#define NTSC_BT601_HEIGHT 480
+#define VGA_WIDTH   640
+#define VGA_HEIGHT  480
 #define CIF_WIDTH   352
 #define CIF_HEIGHT  288
 
 #define CF_422 0
-#define CF_411 1
+#define CF_420 1
 #define CF_CIF 2
+
+#define CS_VC         0 /* 4CIF (704x576), CIF (352x288), QCIF (176x144) */
+#define CS_VGA        1 /* VGA (640x480), 1/4 VGA (320x240), 1/16 VGA (160x120) */
+#define CS_BT601_NTSC 2 /* ITU-R Recommendation BT.601 720x480 (plus 360x240 & 180x120) */
+#define CS_BT601_PAL  3 /* ITU-R Recommendation BT.601 720x576 (plus 360x288 & 180x144) */
 
 /* YUV Byte order */
 #define BYTE_ORDER_YUYV 0
@@ -133,9 +138,6 @@ protected:
         void format();
         void setsize();
 
-        void packed422_to_planar422(char *, const char*);
-        void packed422_to_planar420(char *, const char*);
-
 #ifndef HAVE_LIBV4L
         void jpeg_to_planar420(char *, const char*);
 #endif
@@ -164,7 +166,6 @@ protected:
         int have_MJPEG;
         int have_JPEG;
 
-        int byteorder_;
         int cformat_;
         int port_;
         int norm_;
@@ -267,14 +268,14 @@ V4l2Scanner::V4l2Scanner(const char **dev)
                         continue;
                 }
 
-                if (capability.capabilities & V4L2_CAP_VIDEO_CAPTURE == 0) {
+                if ((capability.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0) {
                         debug_msg("%s, %s can't capture\n",capability.card,capability.bus_info);
                         v4l2_close(fd);
                         continue;
                 }
 
                 attr = new char[512];
-                strcpy(attr,"format { 411 422 cif } ");
+                strcpy(attr,"format { 420 422 cif } ");
                 strcat(attr,"size { small large cif } ");
 
                 debug_msg("V4L2:   ports:");
@@ -328,7 +329,6 @@ V4l2Scanner::V4l2Scanner(const char **dev)
 
 V4l2Grabber::V4l2Grabber(const char *cformat, const char *dev)
 {
-
         fd_ = open(dev, O_RDWR);
         if (fd_ < 0) {
                 perror("open");
@@ -361,53 +361,71 @@ V4l2Grabber::V4l2Grabber(const char *cformat, const char *dev)
         fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         v4l2_ioctl(fd_, VIDIOC_G_FMT, &fmt);
 
-        fmt.fmt.pix.width = CIF_WIDTH;
-        fmt.fmt.pix.height = CIF_HEIGHT;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
-        if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
-                if (fmt.fmt.pix.height == CIF_HEIGHT) {
-                        have_YUV420P = 1;
-                        debug_msg("\nDevice supports V4L2_PIX_FMT_YUV420\n");
+        unsigned int test_width[] =  {CIF_WIDTH,  PAL_BT601_WIDTH/2,  NTSC_BT601_WIDTH/2,  VGA_WIDTH/2,  0};
+        unsigned int test_height[] = {CIF_HEIGHT, PAL_BT601_HEIGHT/2, NTSC_BT601_HEIGHT/2, VGA_HEIGHT/2, 0};
+        for (unsigned int i = 0; test_width[i] != 0; i++) {
+                fmt.fmt.pix.width = test_width[i];
+                fmt.fmt.pix.height = test_height[i];
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
+                if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
+                        if (fmt.fmt.pix.height == test_height[i] && fmt.fmt.pix.width >= test_width[i] && fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUV420) {
+                                have_YUV420P = 1;
+                                debug_msg("Device supports V4L2_PIX_FMT_YUV420 capture at %dx%d\n",test_width[i],test_height[i]);
+                        } else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUV420) {
+                                debug_msg("V4L2_PIX_FMT_YUV420 capture at %dx%d not supported, returned %dx%d\n",test_width[i],test_height[i],fmt.fmt.pix.width,fmt.fmt.pix.height);
+                        }
                 }
-        }
 
-        fmt.fmt.pix.width = CIF_WIDTH;
-        fmt.fmt.pix.height = CIF_HEIGHT;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV422P;
-        if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
-                if (fmt.fmt.pix.height == CIF_HEIGHT) {
-                        have_YUV422P = 1;
-                        debug_msg("\nDevice supports V4L2_PIX_FMT_YUV422\n");
+                fmt.fmt.pix.width = test_width[i];
+                fmt.fmt.pix.height = test_height[i];
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV422P;
+                if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
+                        if (fmt.fmt.pix.height == test_height[i] && fmt.fmt.pix.width >= test_width[i] && fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUV422P) {
+                                have_YUV422P = 1;
+                                debug_msg("Device supports V4L2_PIX_FMT_YUV422 capture at %dx%d\n",test_width[i],test_height[i]);
+                        } else {
+                                debug_msg("V4L2_PIX_FMT_YUV422 capture at %dx%d not supported, returned %dx%d\n",test_width[i],test_height[i],fmt.fmt.pix.width,fmt.fmt.pix.height);
+                        }
                 }
-        }
 
-        fmt.fmt.pix.width = CIF_WIDTH;
-        fmt.fmt.pix.height = CIF_HEIGHT;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-        if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
-                if (fmt.fmt.pix.height == CIF_HEIGHT) {
-                        have_YUV422 = 1;
-                        debug_msg("\nDevice supports V4L2_PIX_FMT_YUYV (YUV 4:2:2)\n");
+                fmt.fmt.pix.width = test_width[i];
+                fmt.fmt.pix.height = test_height[i];
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+                if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
+                        if (fmt.fmt.pix.height == test_height[i] && fmt.fmt.pix.width >= test_width[i]) {
+                                have_YUV422 = 1;
+                                debug_msg("Device supports V4L2_PIX_FMT_YUYV (YUV 4:2:2) capture at %dx%d\n",test_width[i],test_height[i]);
+                        } else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV) {
+                                debug_msg("V4L2_PIX_FMT_YUYV (YUV 4:2:2) capture at %dx%d not supported, returned %dx%d\n",test_width[i],test_height[i],fmt.fmt.pix.width,fmt.fmt.pix.height);
+                        }
                 }
-        }
 
 #ifdef HAVE_LIBV4L
-        fmt.fmt.pix.width = CIF_WIDTH;
-        fmt.fmt.pix.height = CIF_HEIGHT;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-        if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
-                have_MJPEG = 1;
-                debug_msg("\nDevice supports V4L2_PIX_FMT_MJPEG\n");
-        }
+                fmt.fmt.pix.width = test_width[i];
+                fmt.fmt.pix.height = test_height[i];
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+                if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
+                        if (fmt.fmt.pix.height == test_height[i] && fmt.fmt.pix.width >= test_width[i] && fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG) {
+                                have_MJPEG = 1;
+                                debug_msg("Device supports V4L2_PIX_FMT_MJPEG capture at %dx%d\n",test_width[i],test_height[i]);
+                        } else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_MJPEG) {
+                                debug_msg("V4L2_PIX_FMT_MJPEG capture at %dx%d not supported, returned %dx%d\n",test_width[i],test_height[i],fmt.fmt.pix.width,fmt.fmt.pix.height);
+                        }
+                }
 
-        fmt.fmt.pix.width = CIF_WIDTH;
-        fmt.fmt.pix.height = CIF_HEIGHT;
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
-        if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
-                have_MJPEG = 1;
-                debug_msg("\nDevice supports V4L2_PIX_FMT_JPEG\n");
-        }
+                fmt.fmt.pix.width = test_width[i];
+                fmt.fmt.pix.height = test_height[i];
+                fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_JPEG;
+                if (-1 != v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) {
+                        if (fmt.fmt.pix.height == test_height[i] && fmt.fmt.pix.width >= test_width[i] && fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_JPEG) {
+                                have_MJPEG = 1;
+                                debug_msg("Device supports V4L2_PIX_FMT_JPEG capture at %dx%d\n",test_width[i],test_height[i]);
+                        } else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_JPEG) {
+                                debug_msg("V4L2_PIX_FMT_JPEG capture at %dx%d not supported, returned %dx%d\n",test_width[i],test_height[i],fmt.fmt.pix.width,fmt.fmt.pix.height);
+                        }
+                }
 #endif
+        }
 
         if( !( have_YUV422P || have_YUV422 || have_YUV420P || have_MJPEG || have_JPEG)){
                 debug_msg("No suitable pixelformat found\n");
@@ -434,8 +452,8 @@ V4l2Grabber::V4l2Grabber(const char *cformat, const char *dev)
         }
 
         /* fill in defaults */
-        if(!strcmp(cformat, "411"))
-                cformat_ = CF_411;
+        if(!strcmp(cformat, "420"))
+                cformat_ = CF_420;
         if(!strcmp(cformat, "422"))
                 cformat_ = CF_422;
         if(!strcmp(cformat, "cif"))
@@ -479,15 +497,6 @@ V4l2Grabber::~V4l2Grabber()
 int V4l2Grabber::command(int argc, const char*const* argv)
 {
         int i, err;
-
-        Tcl &tcl = Tcl::instance();
-
-        byteorder_ = 0;
-
-        if ( tcl.attr("yuv_byteOrder") != NULL )
-                byteorder_ = atoi( tcl.attr("yuv_byteOrder") );
-
-        if ( ! ((byteorder_ >= 0) && (byteorder_ <= 3)) ) byteorder_=0;
 
         if (argc == 3) {
                 if (strcmp(argv[1], "decimate") == 0) {
@@ -590,11 +599,6 @@ int V4l2Grabber::command(int argc, const char*const* argv)
                         }
                 }
 
-                if (strcmp(argv[1], "yuv_byteorder") == 0) {
-                        debug_msg("V4L2: asked for yuv_byteorder\n");
-                        return (TCL_OK);
-                }
-
                 if (strcmp(argv[1], "fps") == 0) {
                         debug_msg("V4L2: fps %s\n",argv[2]);
                 }
@@ -658,15 +662,15 @@ void V4l2Grabber::start()
                                 vimage[i].vidbuf.memory = V4L2_MEMORY_MMAP;
                                 err = v4l2_ioctl(fd_, VIDIOC_QUERYBUF, &vimage[i].vidbuf);
                                 if (err < 0) {
-                                        debug_msg("QUERYBUF returned error %d\n",errno);
+                                        debug_msg("QUERYBUF returned error %d\n", errno);
                                         return;
                                 }
                                 vimage[i].data = (typeof(vimage[0].data)) v4l2_mmap(0,  vimage[i].vidbuf.length, PROT_READ|PROT_WRITE, MAP_SHARED, fd_, vimage[i].vidbuf.m.offset);
 
                                 if ((long)vimage[i].data == -1) {
-                                        debug_msg("V4L2: mmap() returned error %l\n", errno);
+                                        debug_msg("V4L2: mmap() returned error %d\n", errno);
                                         return;
-                                } else debug_msg("V4L2: mmap()'ed buffer at 0x%x (%d bytes)\n", (long)vimage[i].data, vimage[i].vidbuf.length);
+                                } else debug_msg("V4L2: mmap()'ed buffer at 0x%lx (%u bytes)\n", (unsigned long)vimage[i].data, vimage[i].vidbuf.length);
                         }
 
                         for (i = 0; i < (int)req.count; ++i)
@@ -685,7 +689,7 @@ void V4l2Grabber::start()
                         if (vimage[0].data == NULL) {
                                 debug_msg("malloc(%d) failed\n", fmt.fmt.pix.sizeimage);
                                 return;
-                        } else debug_msg("V4L2: malloc()'ed buffer (%d bytes)\n",  fmt.fmt.pix.sizeimage);
+                        } else debug_msg("V4L2: malloc()'ed buffer (%d bytes)\n", fmt.fmt.pix.sizeimage);
                 }
 
                 Grabber::start();
@@ -707,7 +711,7 @@ void V4l2Grabber::stop()
 
                 tempbuf.type = vimage[0].vidbuf.type;
                 while ((err = v4l2_ioctl(fd_, VIDIOC_DQBUF, &tempbuf)) < 0 &&
-                       (errno == EINTR));
+                       (errno == EINTR)) ;
 
                 if (err < 0) {
                         debug_msg("V4L2: VIDIOC_DQBUF failed: %s\n", strerror(errno));
@@ -767,27 +771,31 @@ int V4l2Grabber::grab()
         }
 
         switch (cformat_) {
-        case CF_411:
+        case CF_420:
         case CF_CIF:
-                if( have_YUV420P )
-                       memcpy((void *)frame_, (const void *)fr, (size_t)height_*width_*3/2)
-;
-                else if( have_YUV422 )
-                       packed422_to_planar420((char*)frame_,fr);
+                if (have_YUV420P)
+                       planarYUYV420_to_planarYUYV420((char *)frame_, outw_, outh_, fr, inw_, inh_);
+                else if (have_YUV422)
+                       packedYUYV422_to_planarYUYV420((char *)frame_, outw_, outh_, fr, inw_, inh_);
+                else if (have_YUV422P)
+                       planarYUYV422_to_planarYUYV420((char *)frame_, outw_, outh_, fr, inw_, inh_);
 #ifndef HAVE_LIBV4L
-                else if( have_MJPEG || have_JPEG) {
+                else if (have_MJPEG || have_JPEG) {
                        jpeg_to_planar420((char*)frame_,fr);
                 }
 #endif
                 break;
 
         case CF_422:
-                if (have_YUV422P) 
-                       memcpy((void *)frame_, (const void *)fr, (size_t)height_*width_*2);
-                else if( have_YUV422 )
-                       packed422_to_planar422((char*)frame_,fr);
+                if (have_YUV422P)
+                       planarYUYV422_to_planarYUYV422((char *)frame_, outw_, outh_, fr, inw_, inh_);
+                else if (have_YUV422)
+                       packedYUYV422_to_planarYUYV422((char *)frame_, outw_, outh_, fr, inw_, inh_);
+                else if (have_YUV420P)
+                       planarYUYV420_to_planarYUYV422((char *)frame_, outw_, outh_, fr, inw_, inh_);
+
 #ifndef HAVE_LIBV4L
-                else if( have_MJPEG  || have_JPEG)
+                else if (have_MJPEG  || have_JPEG)
                        // jpeg_to_planar422((char*)frame_,fr);
 #endif
                 break;
@@ -800,253 +808,6 @@ int V4l2Grabber::grab()
         saveblks(frame_);
         YuvFrame f(media_ts(), frame_, crvec_, outw_, outh_);
         return (target_->consume(&f));
-}
-
-
-void V4l2Grabber::packed422_to_planar422(char *dest, const char *src)
-{
-    int i;
-    char *y,*u,*v;
-    unsigned int a, *srca;
-
-    srca = (unsigned int *)src;
-
-    i = (width_ * height_)/2;
-    y = dest;
-    u = y + width_ * height_;
-    v = u + width_ * height_ / 2;
-
-    switch (byteorder_) {
-    case BYTE_ORDER_YUYV:
-        while (--i) {
-                a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-#else
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-#endif
-        }
-        break;
-
-    case BYTE_ORDER_YVYU:
-        while (--i) {
-                a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-#else
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-#endif
-        }
-        break;
-
-    case BYTE_ORDER_UYVY:
-        while (--i) {
-                a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-#else
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-#endif
-        }
-        break;
-
-    case BYTE_ORDER_VYUY:
-        while (--i) {
-                a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                *(v++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-#else
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(u++) = a & 0xff;
-                a >>= 8;
-                *(y++) = a & 0xff;
-                a >>= 8;
-                *(v++) = a & 0xff;
-#endif
-        }
-        break;
-    }
-
-}
-
-void V4l2Grabber::packed422_to_planar420(char *dest, const char *src)
-{
-    int  a1,b;
-    char *y,*u,*v;
-    unsigned int a, *srca;
-
-    srca = (unsigned int *)src;
-
-    y = dest;
-    u = y + width_ * height_;
-    v = u + width_ * height_ / 4;
-
-    switch (byteorder_) {
-    case BYTE_ORDER_YUYV:
-        for (a1 = height_; a1 > 0; a1 -= 2) {
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff;
-#else
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y+1) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y) = a;  y += 2;
-#endif
-                }
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++); 
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(y++) = a & 0xff; a >>= 16;
-                        *(y++) = a & 0xff;
-#else
-                        a >>= 8;
-                        *(y+1) = a & 0xff; a >>= 16;
-                        *(y) = a; y += 2;
-#endif
-                }
-        }
-        break;
-
-    case BYTE_ORDER_YVYU:
-        for (a1 = height_; a1 > 0; a1 -= 2) {
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff;
-#else
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y+1) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y) = a;  y += 2;
-#endif
-                }
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++); 
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(y++) = a & 0xff; a >>= 16;
-                        *(y++) = a & 0xff;
-#else
-                        a >>= 8;
-                        *(y+1) = a & 0xff; a >>= 16;
-                        *(y) = a; y += 2;
-#endif
-                }
-        }
-        break;
-
-    case BYTE_ORDER_UYVY:
-        for (a1 = height_; a1 > 0; a1 -= 2) {
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff;
-#else
-                        *(y+1) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff;
-                        y += 2;
-#endif
-                }
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        a >>= 8;
-                        *(y++) = a & 0xff; a >>= 16;
-                        *(y++) = a & 0xff;
-#else
-                        *(y+1) = a & 0xff; a >>= 16;
-                        *(y) = a; y += 2;
-#endif
-                }
-        }
-        break;
-
-    case BYTE_ORDER_VYUY:
-        for (a1 = height_; a1 > 0; a1 -= 2) {
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        *(v++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y++) = a & 0xff;
-#else
-                        *(y+1) = a & 0xff; a >>= 8;
-                        *(u++) = a & 0xff; a >>= 8;
-                        *(y) = a & 0xff; a >>= 8;
-                        *(v++) = a & 0xff;
-                        y += 2;
-#endif
-                }
-                for (b = width_; b > 0; b -= 2) {
-                        a = *(srca++);
-#if BYTE_ORDER == LITTLE_ENDIAN 
-                        a >>= 8;
-                        *(y++) = a & 0xff; a >>= 16;
-                        *(y++) = a & 0xff;
-#else
-                        *(y+1) = a & 0xff; a >>= 16;
-                        *(y) = a; y += 2;
-#endif
-                }
-        }
-        break;
-    }
 }
 
 #ifndef HAVE_LIBV4L
@@ -1091,9 +852,10 @@ void V4l2Grabber::format()
         int i, err;
         int input;
         int format_ok = 0;
+        int capture_standard = CS_VC; // initially try video conferencing resolutions
 
         switch (cformat_) {
-        case CF_411:
+        case CF_420:
         case CF_CIF:
                 if( have_YUV420P )
                        pixelformat = V4L2_PIX_FMT_YUV420;
@@ -1112,6 +874,8 @@ void V4l2Grabber::format()
                        pixelformat = V4L2_PIX_FMT_YUV422P;
                 else if( have_YUV422 )
                        pixelformat = V4L2_PIX_FMT_YUYV;
+                else if( have_YUV420P )
+                       pixelformat = V4L2_PIX_FMT_YUV420;
 #ifndef HAVE_LIBV4L
                 else if( have_MJPEG )
                        pixelformat = V4L2_PIX_FMT_MJPEG;
@@ -1122,7 +886,7 @@ void V4l2Grabber::format()
         }
 
         while ( !format_ok ) {
-                if (decimate_ > 0) {
+                if (capture_standard == CS_VC) {
                         width_  = CIF_WIDTH  *2  / decimate_;
                         height_ = CIF_HEIGHT *2  / decimate_;
                 }
@@ -1130,16 +894,16 @@ void V4l2Grabber::format()
                 debug_msg("V4L2: format");
                 switch (cformat_) {
                 case CF_CIF:
-                        set_size_411(width_, height_);
-                        debug_msg(" cif");
+                        set_size_cif(width_, height_);
+                        debug_msg(" cif\n");
                         break;
-                case CF_411:
-                        set_size_411(width_, height_);
-                        debug_msg(" 411");
+                case CF_420:
+                        set_size_420(width_, height_);
+                        debug_msg(" 420\n");
                         break;
                 case CF_422:
                         set_size_422(width_, height_);
-                        debug_msg(" 422");
+                        debug_msg(" 422\n");
                         break;
                 }
                 debug_msg("decimate: %d\n",decimate_);
@@ -1164,8 +928,12 @@ void V4l2Grabber::format()
                         fmtd.index = i;
                         fmtd.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
                         err = v4l2_ioctl(fd_, VIDIOC_ENUM_FMT, &fmtd);
-                        if (!err) {
+                        if (err) {
+                                debug_msg("V4L2: VIDIOC_ENUM_FMT returned unexpected EINVAL error code\n");
+                                debug_msg("V4L2: giving up ...\n");
+                                format_ok = 1;
 
+                        } else {
                                 if (fmtd.pixelformat == pixelformat) {
                                         memset(&fmt,0,sizeof(fmt));
                                         fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1178,43 +946,110 @@ void V4l2Grabber::format()
                                         if ( (err = v4l2_ioctl(fd_, VIDIOC_S_FMT, &fmt) ) )
                                                 debug_msg("\nV4L2: Failed to set format\n");
 
-                                        if ( ( fmt.fmt.pix.width != (unsigned int)width_ ) ||
-                                                                ( fmt.fmt.pix.height !=  (unsigned int)height_ ) ) {
+                                        /* Clip horizontally (if necessary) capture resolutions that satisfy the
+                                         * vertical resolution, but ignore resolutions that are very wide and most
+                                         * likely not square pixels
+                                         */
+                                        if ( (fmt.fmt.pix.width > (unsigned int)width_ ) &&
+                                                               (fmt.fmt.pix.height == (unsigned int)height_) &&
+                                                               (fmt.fmt.pix.width < (2 * fmt.fmt.pix.height)) ) {
+                                                inw_ = width_ = fmt.fmt.pix.width;
+                                                debug_msg("V4L2: will clip input width=%d to %d\n", inw_, outw_);
+                                        }
+
+                                        if ( ( fmt.fmt.pix.width == (unsigned int)width_ ) &&
+                                                                ( fmt.fmt.pix.height == (unsigned int)height_ ) )  {
+                                                debug_msg("V4L2: setting format: width=%d height=%d\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
+                                                format_ok = 1;
+                                                break;
+                                        } else {
 
                                                 debug_msg("V4L2: failed to set format! requested %dx%d, got %dx%d\n", width_, height_, fmt.fmt.pix.width, fmt.fmt.pix.height);
 
-
                                                 switch(decimate_) {
-                                                case 2:
-                                                        debug_msg("V4L2: trying resolution under ...\n");
-                                                        decimate_ = 4;
-                                                        break;
                                                 case 1:
-                                                        debug_msg("V4L2: trying NTSC resolution ...\n");
-                                                        decimate_ = 0;
-                                                        width_ = NTSC_WIDTH;
-                                                        height_ = NTSC_HEIGHT;
+                                                        switch (capture_standard) {
+                                                        case CS_VC :
+                                                                debug_msg("V4L2: trying VGA resolution ...\n");
+                                                                width_ = VGA_WIDTH;
+                                                                height_ = VGA_HEIGHT;
+                                                                capture_standard = CS_VGA;
+                                                                break;
+                                                        case CS_VGA :
+                                                                debug_msg("V4L2: trying ITU-R BT.601 NTSC resolution ...\n");
+                                                                width_ = NTSC_BT601_WIDTH;
+                                                                height_ = NTSC_BT601_HEIGHT;
+                                                                capture_standard = CS_BT601_NTSC;
+                                                                break;
+                                                        case CS_BT601_NTSC :
+                                                                debug_msg("V4L2: trying ITU-R BT.601 PAL resolution ...\n");
+                                                                width_ = PAL_BT601_WIDTH;
+                                                                height_ = PAL_BT601_HEIGHT;
+                                                                capture_standard = CS_BT601_PAL;
+                                                                break;
+                                                        default :
+                                                                debug_msg("V4L2: trying resolution under ...\n");
+                                                                decimate_ = 2;
+                                                                capture_standard = CS_VC;
+                                                        }
                                                         break;
-                                                case 0:
-                                                        debug_msg("V4L2: trying resolution under ...\n");
-                                                        decimate_ = 2;
+                                                case 2:
+                                                        switch (capture_standard) {
+                                                        case CS_VC :
+                                                                debug_msg("V4L2: trying 1/4 VGA resolution ...\n");
+                                                                width_ = VGA_WIDTH / 2;
+                                                                height_ = VGA_HEIGHT / 2;
+                                                                capture_standard = CS_VGA;
+                                                                break;
+                                                        case CS_VGA :
+                                                                debug_msg("V4L2: trying 1/4 ITU-R BT.601 NTSC resolution ...\n");
+                                                                width_ = NTSC_BT601_WIDTH / 2;
+                                                                height_ = NTSC_BT601_HEIGHT / 2;
+                                                                capture_standard = CS_BT601_NTSC;
+                                                                break;
+                                                        case CS_BT601_NTSC :
+                                                                debug_msg("V4L2: trying 1/4 ITU-R BT.601 PAL resolution ...\n");
+                                                                width_ = PAL_BT601_WIDTH / 2;
+                                                                height_ = PAL_BT601_HEIGHT / 2;
+                                                                capture_standard = CS_BT601_PAL;
+                                                                break;
+                                                        default :
+                                                                debug_msg("V4L2: trying resolution under ...\n");
+                                                                decimate_ = 4;
+                                                                capture_standard = CS_VC;
+                                                        }
                                                         break;
                                                 default:
-                                                        debug_msg("V4L2: giving up ...\n");
-                                                        format_ok = 1;
+                                                        switch (capture_standard) {
+                                                        case CS_VC :
+                                                                debug_msg("V4L2: trying 1/16 VGA resolution ...\n");
+                                                                width_ = VGA_WIDTH / 4;
+                                                                height_ = VGA_HEIGHT / 4;
+                                                                capture_standard = CS_VGA;
+                                                                break;
+                                                        case CS_VGA :
+                                                                debug_msg("V4L2: trying 1/16 ITU-R BT.601 NTSC resolution ...\n");
+                                                                width_ = NTSC_BT601_WIDTH / 4;
+                                                                height_ = NTSC_BT601_HEIGHT / 4;
+                                                                capture_standard = CS_BT601_NTSC;
+                                                                break;
+                                                        case CS_BT601_NTSC :
+                                                                debug_msg("V4L2: trying 1/16 ITU-R BT.601 PAL resolution ...\n");
+                                                                width_ = PAL_BT601_WIDTH / 4;
+                                                                height_ = PAL_BT601_HEIGHT / 4;
+                                                                capture_standard = CS_BT601_PAL;
+                                                                break;
+                                                        default :
+                                                                debug_msg("V4L2: giving up ...\n");
+                                                                format_ok = 1;
+                                                        }
                                                 }
-
-                                        } else {
-                                                debug_msg("V4L2: setting format: width=%d height=%d\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
-                                                format_ok = 1;
+                                                break; // inner for loop
                                         }
-                                        break;
                                 }
-
                         }
                 }
         }
-
 
         allocref();
 }
