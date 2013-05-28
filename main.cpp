@@ -130,7 +130,7 @@ extern "C" int gethostname(char* name, int len);
 #endif
 
 static void
-usage(char *szOffending)
+usage(const char *szOffending)
 {
 	char win_usage[] = "\
     \nVIC is a multicast (or unicast) video tool. It is best to start it\n\

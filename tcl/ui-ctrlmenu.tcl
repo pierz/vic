@@ -1673,7 +1673,7 @@ set qscale_val(raw) 1
 set lastFmt ""
 
 proc select_format fmt {
-	global qscale qlabel videoDevice videoFormat qscale_val lastFmt
+	global qscale qlabel videoDevice videoFormat qscale_val lastFmt inputSize
 
 	if { $fmt == "h261" || $fmt == "pvh"} {
 		# H.261 supports only QCIF/CIF
@@ -1735,6 +1735,7 @@ proc select_format fmt {
 			# XXX doens't work if title-maker is installed
 			# SV, title-maker fix: see marked code below
 			delete $V(encoder)
+			$V(grabber) decimate $inputSize
 			set V(encoder) $encoder
 
 			update_encoder_param
