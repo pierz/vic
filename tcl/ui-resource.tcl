@@ -162,6 +162,7 @@ proc init_resources {} {
 	option add Vic.maxbw -1 startupFile
 	option add Vic.bandwidth 128 startupFile
 	option add Vic.iconPrefix vic: startupFile
+	option add Vic.netBufferSize [expr 1024*1024] startupFile
 	option add Vic.priority 10 startupFile
 	option add Vic.confBusChannel 0 startupFile
 
@@ -178,11 +179,13 @@ proc init_resources {} {
 	option add Vic.infoHighlightColor LightYellow2 startupFile
 	option add Vic.useJPEGforH261 false startupFile
 	option add Vic.useHardwareComp false startupFile
+	option add Vic.useDeinterlacerComp true startupFile
 	option add Vic.stillGrabber false startupFile 
 	option add Vic.fileGrabber false startupFile 
 	option add Vic.siteDropTime "300" startupFile
 	option add Vic.quality "0" startupFile
 	option add Vic.inputType "ntsc" startupFile
+	option add Vic.largeSizeResolution "none" startupFile
 
 	option add Vic.brightness "128" startupFile
 	option add Vic.contrast "128" startupFile

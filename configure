@@ -1366,8 +1366,8 @@ Optional Features:
 --disable-aquatcl	build with aquatcl enabled
 --disable-aquatk	build with aquatk enabled
 --enable-gpl	Enable or disable  use of gpl functionality - H264 MPEG4 Swscale
---disable-ffmpeg-co	Enable or disable ffmpeg download
---disable-x264-co      Enable or disable x264 download
+--disable-ffmpeg-co	Enable or disable ffmpeg svn checkout
+--disable-x264-co      Enable or disable x264 svn checkout
 --disable-cpudetect     Enable or disable runtime cpu detection
 --disable-h261as         Enable or disable the h261as codec (default: enabled)
 --enable-dvdecode       Enable or disable dv decoding (default: disabled)
@@ -1385,8 +1385,6 @@ Optional Packages:
   --with-tk               directory containing tk configuration (tkConfig.sh)
 --with-aix-shm=path	specify a pathname for the AIX shm X extension library file
 --with-qcam=dir     specify directory with qcam.h for Connectix QuickCam device driver
---with-ffmpegver=ffmpeg-version     specify the version of ffmpeg to download and build
---with-x264ver=x264ver-version     specify the version of x264 to download and build
 --with-ffmpeginc=dir     specify the prefix directory of ffmpeg header
 --with-ffmpeglib=dir     specify the directory of ffmpeg library
 --with-x264inc=dir     specify the directory of x264 header
@@ -2175,7 +2173,7 @@ case "$arch" in
   ;;
   "Power Macintosh"|ppc|ppc64|powerpc)
     V_ARCH="ARCH_PPC"
-    case "$target" in (*darwin*) V_DEFINE="$V_DEFINE -DSYS_DARWIN";; esac
+    V_DEFINE="$V_DEFINE -DSYS_DARWIN"
     ppc_conf="--disable-altivec"
     ppc_tune="-mcpu=G3"
     echo test1
@@ -4601,89 +4599,6 @@ else
   V_OBJ="$V_OBJ render/color-true.o  render/color-hi.o"
 fi
 
-# Extract the first word of "wget", so it can be a program name with args.
-set dummy wget; ac_word=$2
-{ echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
-if test "${ac_cv_prog_DOWNLOAD+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  if test -n "$DOWNLOAD"; then
-  ac_cv_prog_DOWNLOAD="$DOWNLOAD" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
-    ac_cv_prog_DOWNLOAD="wget -O -"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-IFS=$as_save_IFS
-
-fi
-fi
-DOWNLOAD=$ac_cv_prog_DOWNLOAD
-if test -n "$DOWNLOAD"; then
-  { echo "$as_me:$LINENO: result: $DOWNLOAD" >&5
-echo "${ECHO_T}$DOWNLOAD" >&6; }
-else
-  { echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6; }
-fi
-
-
-# Extract the first word of "curl", so it can be a program name with args.
-set dummy curl; ac_word=$2
-{ echo "$as_me:$LINENO: checking for $ac_word" >&5
-echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
-if test "${ac_cv_prog_DOWNLOAD+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  if test -n "$DOWNLOAD"; then
-  ac_cv_prog_DOWNLOAD="$DOWNLOAD" # Let the user override the test.
-else
-as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-  for ac_exec_ext in '' $ac_executable_extensions; do
-  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
-    ac_cv_prog_DOWNLOAD="curl -s"
-    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-done
-IFS=$as_save_IFS
-
-fi
-fi
-DOWNLOAD=$ac_cv_prog_DOWNLOAD
-if test -n "$DOWNLOAD"; then
-  { echo "$as_me:$LINENO: result: $DOWNLOAD" >&5
-echo "${ECHO_T}$DOWNLOAD" >&6; }
-else
-  { echo "$as_me:$LINENO: result: no" >&5
-echo "${ECHO_T}no" >&6; }
-fi
-
-
-
-
-# Check whether --with-ffmpegver was given.
-if test "${with_ffmpegver+set}" = set; then
-  withval=$with_ffmpegver; ffmpegver=$withval
-else
-  ffmpegver=ffmpeg-0.5
-fi
-
 # Check whether --enable-ffmpeg-co was given.
 if test "${enable_ffmpeg_co+set}" = set; then :
   enableval=$enable_ffmpeg_co; ffmpegco="no"
@@ -4693,25 +4608,18 @@ fi
 
 if test "$ffmpegco" = "yes" ; then
   if test "$gpl" = "yes" ; then
-   if test ! -r ${ffmpegver} ; then
-     echo "Downloading ${ffmpegver} from www.ffmpeg.org ..."
-     ${DOWNLOAD} http://www.ffmpeg.org/releases/${ffmpegver}.tar.bz2 | tar xjf - && rm -r ffmpeg ; ln -s ${ffmpegver} ffmpeg
-   fi
-   echo "Configuring ffmpeg..."
-   cd ffmpeg; ./configure --prefix=$V_PATH/ffmpeg $ppc_conf --enable-gpl --enable-swscale --enable-postproc; cd ..
-   V_INCLUDE="$V_INCLUDE -Iffmpeg/include -Iffmpeg"
+   #if test ! -r "ffmpeg" ; then
+     echo "checking out r7110 (and 21687 of libswscale) of ffmpeg from  svn://svn.mplayerhq.hu/ffmpeg/trunk..."
+     #svn checkout -r 7110 svn://svn.mplayerhq.hu/ffmpeg/trunk ffmpeg
+     #svn checkout -r 21687 svn://svn.mplayerhq.hu/mplayer/trunk/libswscale  ffmpeg/libswscale
+     echo "Configuring ffmpeg..."
+     cd ffmpeg; ./configure --prefix=$V_PATH/ffmpeg $ppc_conf --enable-gpl --enable-swscaler --enable-pp; cd ..
+   #fi
+   V_INCLUDE="$V_INCLUDE -Iffmpeg/libavformat -Iffmpeg/include/ffmpeg -Iffmpeg/include"
    V_CODEC_LIB="$V_CODEC_LIB ffmpeg/lib/libavcodec.a ffmpeg/lib/libavutil.a ffmpeg/lib/libswscale.a ffmpeg/lib/libpostproc.a"
   else
     echo "ffmpeg not available without --enable-gpl"
   fi
-fi
-
-
-# Check whether --with-x264ver was given.
-if test "${with_x264ver+set}" = set; then
-  withval=$with_x264ver; x264ver=$withval
-else
-  x264ver=x264-snapshot-20070413-2245
 fi
 
 # Check whether --enable-x264-co was given.
@@ -4723,13 +4631,12 @@ fi
 
 if test "$x264co" = "yes" ; then
   if test "$gpl" = "yes" ; then
-   if test ! -r ${x264ver} ; then
-     echo "Downloading ${x264ver} (r650) of x264 from videolan.org ..."
-     #svn checkout -r 650 svn://svn.videolan.org/x264/trunk x264
-     ${DOWNLOAD} http://downloads.videolan.org/pub/videolan/x264/snapshots/${x264ver}.tar.bz2 | tar xjf - && ln -sf ${x264ver} x264
+   if test ! -r "x264" ; then
+     echo "checking out r650 of x264 from  svn co svn://svn.videolan.org/x264/trunk..."
+     svn checkout -r 650 svn://svn.videolan.org/x264/trunk x264
+     echo "Configuring x264..."
+     cd x264; ./configure --prefix=$V_PATH/x264; cd ..
    fi
-   echo "Configuring x264..."
-   cd x264; ./configure --prefix=$V_PATH/x264; cd ..
    V_INCLUDE="$V_INCLUDE -Ix264/include"
    V_CODEC_LIB="$V_CODEC_LIB x264/lib/libx264.a"
   else
@@ -5338,144 +5245,11 @@ if test "$v4l2old" = "yes" ; then
                 V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-v4l2-old.o"
 		echo "Using old Linux grabber-v4l2"
 elif test -r /usr/include/linux/videodev.h ; then
-        if test "${ac_cv_header_libv4lconvert_h+set}" = set; then
-  { echo "$as_me:$LINENO: checking for libv4lconvert.h" >&5
-echo $ECHO_N "checking for libv4lconvert.h... $ECHO_C" >&6; }
-if test "${ac_cv_header_libv4lconvert_h+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-fi
-{ echo "$as_me:$LINENO: result: $ac_cv_header_libv4lconvert_h" >&5
-echo "${ECHO_T}$ac_cv_header_libv4lconvert_h" >&6; }
-else
-  # Is the header compilable?
-{ echo "$as_me:$LINENO: checking libv4lconvert.h usability" >&5
-echo $ECHO_N "checking libv4lconvert.h usability... $ECHO_C" >&6; }
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-$ac_includes_default
-#include <libv4lconvert.h>
-_ACEOF
-rm -f conftest.$ac_objext
-if { (ac_try="$ac_compile"
-case "(($ac_try" in
-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-  *) ac_try_echo=$ac_try;;
-esac
-eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
-  (eval "$ac_compile") 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } && {
-	 test -z "$ac_c_werror_flag" ||
-	 test ! -s conftest.err
-       } && test -s conftest.$ac_objext; then
-  ac_header_compiler=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-	ac_header_compiler=no
-fi
-
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-{ echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
-echo "${ECHO_T}$ac_header_compiler" >&6; }
-
-# Is the header present?
-{ echo "$as_me:$LINENO: checking libv4lconvert.h presence" >&5
-echo $ECHO_N "checking libv4lconvert.h presence... $ECHO_C" >&6; }
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-#include <libv4lconvert.h>
-_ACEOF
-if { (ac_try="$ac_cpp conftest.$ac_ext"
-case "(($ac_try" in
-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-  *) ac_try_echo=$ac_try;;
-esac
-eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
-  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } >/dev/null && {
-	 test -z "$ac_c_preproc_warn_flag$ac_c_werror_flag" ||
-	 test ! -s conftest.err
-       }; then
-  ac_header_preproc=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-  ac_header_preproc=no
-fi
-
-rm -f conftest.err conftest.$ac_ext
-{ echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
-echo "${ECHO_T}$ac_header_preproc" >&6; }
-
-# So?  What about this header?
-case $ac_header_compiler:$ac_header_preproc:$ac_c_preproc_warn_flag in
-  yes:no: )
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: accepted by the compiler, rejected by the preprocessor!" >&5
-echo "$as_me: WARNING: libv4lconvert.h: accepted by the compiler, rejected by the preprocessor!" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: proceeding with the compiler's result" >&5
-echo "$as_me: WARNING: libv4lconvert.h: proceeding with the compiler's result" >&2;}
-    ac_header_preproc=yes
-    ;;
-  no:yes:* )
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: present but cannot be compiled" >&5
-echo "$as_me: WARNING: libv4lconvert.h: present but cannot be compiled" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h:     check for missing prerequisite headers?" >&5
-echo "$as_me: WARNING: libv4lconvert.h:     check for missing prerequisite headers?" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: see the Autoconf documentation" >&5
-echo "$as_me: WARNING: libv4lconvert.h: see the Autoconf documentation" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h:     section \"Present But Cannot Be Compiled\"" >&5
-echo "$as_me: WARNING: libv4lconvert.h:     section \"Present But Cannot Be Compiled\"" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: proceeding with the preprocessor's result" >&5
-echo "$as_me: WARNING: libv4lconvert.h: proceeding with the preprocessor's result" >&2;}
-    { echo "$as_me:$LINENO: WARNING: libv4lconvert.h: in the future, the compiler will take precedence" >&5
-echo "$as_me: WARNING: libv4lconvert.h: in the future, the compiler will take precedence" >&2;}
-
-    ;;
-esac
-{ echo "$as_me:$LINENO: checking for libv4lconvert.h" >&5
-echo $ECHO_N "checking for libv4lconvert.h... $ECHO_C" >&6; }
-if test "${ac_cv_header_libv4lconvert_h+set}" = set; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  ac_cv_header_libv4lconvert_h=$ac_header_preproc
-fi
-{ echo "$as_me:$LINENO: result: $ac_cv_header_libv4lconvert_h" >&5
-echo "${ECHO_T}$ac_cv_header_libv4lconvert_h" >&6; }
-
-fi
-if test $ac_cv_header_libv4lconvert_h = yes; then
-  V_DEFINE="$V_DEFINE -DHAVE_LIBV4L"
-         V_LIB_GRABBER="$V_LIB_GRABBER -lv4l1 -lv4l2"
-else
-  V_OBJ_GRABBER="$V_OBJ_GRABBER  video/tinyjpeg.o video/jidctflt.o"
-fi
-
-
         if test -r /usr/include/linux/videodev2.h  ; then
-                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-v4l2.o video/grabber-video4linux.o video/yuv_convert.o"
+                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-v4l2.o video/tinyjpeg.o video/jidctflt.o video/grabber-video4linux.o"
 		echo "Using Linux Grabbers: Video4Linux2 and Video4Linux1"
         else
-                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-video4linux.o video/yuv_convert.o"
+                V_OBJ_GRABBER="$V_OBJ_GRABBER video/grabber-video4linux.o"
 		echo "Using Linux Grabber: Video4Linux1"
         fi
 fi

@@ -19,7 +19,7 @@
 
      Added support for MJPEG/JPEG.
      Added gamma and gain controls.
-     by Douglas Kosovic <douglask@itee.uq.edu.au>
+     by Douglas Kosovic <doug@uq.edu.au>
      MJPEG/JPEG support uses Tiny Jpeg Decoder from :
      http://www.saillard.org/programs_and_patches/tinyjpegdecoder/
 
@@ -31,7 +31,6 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
-#include <endian.h>
 
 #include <sys/types.h>
 #include <sys/fcntl.h>
@@ -45,8 +44,13 @@
 
 extern "C"
 {
-#include <asm/types.h>
+#if defined(HAVE_SYS_VIDEOIO_H)
+#include <sys/videoio.h>
+#elif defined(DHAVE_SYS_VIDEODEV2_H)
+#include <sys/videodev2.h]>
+#else
 #include <linux/videodev2.h>
+#endif
 }
 
 #ifdef HAVE_LIBV4L
@@ -313,6 +317,9 @@ V4l2Scanner::V4l2Scanner(const char **dev)
                                 debug_msg("%s ", estd.name);
                         }
                 }
+                if (k == 0) {
+                        strcat(attr,"ntsc pal ");
+                }
                 debug_msg("\n");
 
                 strcat(attr,"} ");
@@ -464,6 +471,12 @@ V4l2Grabber::V4l2Grabber(const char *cformat, const char *dev)
         decimate_  = 2;
         running_   = 0;
 
+        v4l2_close(fd_);
+        fd_ = v4l2_open(dev, O_RDWR);
+        if (fd_ < 0) {
+                perror("open");
+                return;
+        }
 }
 
 
